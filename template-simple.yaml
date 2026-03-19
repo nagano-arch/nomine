@@ -48,7 +48,6 @@ Resources:
           JWT_SECRET: !Ref JWTSecret
           SESSION_EXPIRY_DAYS: '7'
           S3_BUCKET_NAME: !Ref S3BucketName
-          AWS_REGION: !Ref AWS::Region
       Policies:
         - Version: '2012-10-17'
           Statement:
