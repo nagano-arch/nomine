@@ -14,6 +14,7 @@ import admin from './routes/admin';
 import stores from './routes/stores';
 import settings from './routes/settings';
 import publicEntry from './routes/public-entry';
+import migrate from './routes/migrate';
 
 // PostgreSQL初期化
 import { initializePool, closePool } from './db-postgres';
@@ -44,6 +45,7 @@ app.route('/api/admin', admin);
 app.route('/api/stores', stores);
 app.route('/api/stores', settings);
 app.route('/api/public/entry', publicEntry);
+app.route('/api/migrate', migrate); // 一時的なマイグレーションエンドポイント
 
 // デフォルトルート（消費者向けエントリー画面）
 app.get('/entry/:qrToken', (c) => {
