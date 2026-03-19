@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'NOMINE - Simplified Lambda Deployment'
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+  DBHost:
+    Type: String
+  DBName:
+    Type: String
+    Default: nomine
+  DBUser:
+    Type: String
+    Default: postgres
+  DBPassword:
+    Type: String
+    NoEcho: true
+  JWTSecret:
+    Type: String
+    NoEcho: true
+  S3BucketName:
+    Type: String
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: nodejs20.x
+
+Resources:
+  NomineLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'nomine-api-${Stage}'
+      CodeUri: ./dist
+      Handler: lambda.handler
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DB_HOST: !Ref DBHost
+          DB_PORT: '5432'
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUser
+          DB_PASSWORD: !Ref DBPassword
+          DB_SSL: 'true'
+          JWT_SECRET: !Ref JWTSecret
+          SESSION_EXPIRY_DAYS: '7'
+          S3_BUCKET_NAME: !Ref S3BucketName
+          AWS_REGION: !Ref AWS::Region
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource: !Sub 'arn:aws:s3:::${S3BucketName}/*'
+      Events:
+        ApiRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
+        ApiProxy:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod'
+  LambdaFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt NomineLambdaFunction.Arn
