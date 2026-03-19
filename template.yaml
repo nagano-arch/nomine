@@ -1,0 +1,268 @@
+# AWS SAM Template for NOMINE Application
+# SAM（Serverless Application Model）でLambda + API Gateway + RDS + S3を構築
+
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'NOMINE - Photo/Video Entry Platform for Restaurants'
+
+# グローバル設定
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: nodejs20.x
+    Architectures:
+      - arm64
+    Environment:
+      Variables:
+        NODE_ENV: production
+        AWS_REGION: ap-northeast-1
+
+# パラメータ
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    Description: Deployment stage
+
+  DBHost:
+    Type: String
+    Description: RDS PostgreSQL endpoint
+    NoEcho: true
+
+  DBName:
+    Type: String
+    Default: nomine
+    Description: Database name
+
+  DBUser:
+    Type: String
+    Default: postgres
+    Description: Database username
+    NoEcho: true
+
+  DBPassword:
+    Type: String
+    Description: Database password
+    NoEcho: true
+
+  JWTSecret:
+    Type: String
+    Description: JWT secret key for authentication
+    NoEcho: true
+
+  S3BucketName:
+    Type: String
+    Default: nomine-uploads
+    Description: S3 bucket name for file uploads
+
+# リソース定義
+Resources:
+  # Lambda関数
+  NomineLambdaFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'nomine-api-${Stage}'
+      CodeUri: ./dist
+      Handler: lambda.handler
+      Description: NOMINE API Lambda function
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          DB_HOST: !Ref DBHost
+          DB_PORT: '5432'
+          DB_NAME: !Ref DBName
+          DB_USER: !Ref DBUser
+          DB_PASSWORD: !Ref DBPassword
+          DB_SSL: 'true'
+          JWT_SECRET: !Ref JWTSecret
+          SESSION_EXPIRY_DAYS: '7'
+          S3_BUCKET_NAME: !Ref S3BucketName
+          CLOUDFRONT_DOMAIN: !GetAtt CloudFrontDistribution.DomainName
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref S3BucketName
+        - VPCAccessPolicy: {}
+      Events:
+        # API Gateway統合
+        ApiRoot:
+          Type: Api
+          Properties:
+            Path: /
+            Method: ANY
+            RestApiId: !Ref NomineApiGateway
+        ApiProxy:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+            RestApiId: !Ref NomineApiGateway
+
+  # API Gateway
+  NomineApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub 'nomine-api-${Stage}'
+      StageName: !Ref Stage
+      Cors:
+        AllowOrigin: "'*'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      DefinitionBody:
+        openapi: '3.0.0'
+        info:
+          title: NOMINE API
+          version: '1.0.0'
+        paths:
+          /{proxy+}:
+            x-amazon-apigateway-any-method:
+              responses: {}
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${NomineLambdaFunction.Arn}/invocations'
+
+  # S3バケット（ファイルアップロード用）
+  NomineUploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins:
+              - '*'
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+            AllowedHeaders:
+              - '*'
+            MaxAge: 3600
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldUnadoptedSubmissions
+            Status: Enabled
+            ExpirationInDays: 3
+            Prefix: 'stores/'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # S3バケットポリシー（CloudFront経由のアクセスのみ許可）
+  NomineUploadsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref NomineUploadsBucket
+      PolicyDocument:
+        Statement:
+          - Sid: AllowCloudFrontAccess
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${NomineUploadsBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub 'arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}'
+
+  # CloudFront Distribution（CDN）
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: NOMINE CDN for uploads
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt NomineUploadsBucket.RegionalDomainName
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachedMethods:
+            - GET
+            - HEAD
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          MinTTL: 0
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+        PriceClass: PriceClass_100
+
+  # CloudFront Origin Access Control
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub 'nomine-oac-${Stage}'
+        OriginAccessControlOriginType: s3
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  # Lambda実行ロール
+  NomineLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+      Policies:
+        - PolicyName: S3AccessPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource: !Sub '${NomineUploadsBucket.Arn}/*'
+
+# 出力
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${NomineApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+
+  LambdaFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt NomineLambdaFunction.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LambdaArn'
+
+  S3BucketName:
+    Description: S3 bucket name for uploads
+    Value: !Ref NomineUploadsBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3Bucket'
+
+  CloudFrontDomain:
+    Description: CloudFront distribution domain
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-CloudFrontDomain'

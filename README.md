@@ -48,6 +48,139 @@
 
 ## 🛠 技術スタック
 
+### 🚀 **AWS Lambda版（推奨 - 日本展開向け）**
+
+- **Runtime**: AWS Lambda (Node.js 20.x)
+- **Framework**: Hono (高速・軽量Webフレームワーク)
+- **Database**: Amazon RDS PostgreSQL 16
+- **Storage**: Amazon S3 + CloudFront CDN
+- **API**: Amazon API Gateway
+- **Auth**: JWT + bcrypt
+- **Deployment**: AWS SAM (Serverless Application Model)
+
+### ☁️ **Cloudflare Workers版（グローバル展開向け）**
+
+- **Runtime**: Cloudflare Workers
+- **Framework**: Hono
+- **Database**: Cloudflare D1 (SQLite)
+- **Storage**: Cloudflare R2
+- **Deployment**: Wrangler CLI
+
+---
+
+## 📚 ドキュメント
+
+- **[AWS Lambda完全移行ガイド](./AWS_LAMBDA_GUIDE.md)** - RDS、S3、API Gatewayのセットアップ手順
+- **[技術仕様書](./TECHNICAL_SPEC.md)** - 詳細なシステム設計
+- **[実装ガイド](./IMPLEMENTATION_GUIDE.md)** - 開発者向けガイド
+- **[プロジェクトサマリー](./PROJECT_SUMMARY.md)** - 概要とロードマップ
+
+---
+
+## 🚀 クイックスタート
+
+### AWS Lambda版のセットアップ
+
+1. **前提条件**
+```bash
+# AWS CLIインストール
+brew install awscli
+
+# AWS SAM CLIインストール
+brew install aws-sam-cli
+
+# 認証設定
+aws configure
+```
+
+2. **プロジェクトセットアップ**
+```bash
+# リポジトリクローン
+git clone https://github.com/your-org/nomine.git
+cd nomine
+
+# 依存関係インストール
+npm install
+
+# 環境変数設定
+cp .env.example .env
+# .envファイルを編集してDB接続情報とJWT_SECRETを設定
+```
+
+3. **RDSデータベース作成**
+```bash
+# AWS_LAMBDA_GUIDE.mdの手順に従ってRDSインスタンスを作成
+# マイグレーション実行
+npm run db:migrate:postgres
+```
+
+4. **デプロイ**
+```bash
+# ビルド & デプロイ
+npm run deploy:lambda:dev
+
+# または手動デプロイ
+sam build
+sam deploy --guided
+```
+
+5. **動作確認**
+```bash
+# APIエンドポイント取得
+API_ENDPOINT=$(aws cloudformation describe-stacks \
+  --stack-name nomine-dev \
+  --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
+  --output text)
+
+# ヘルスチェック
+curl $API_ENDPOINT/health
+```
+
+---
+
+## 📦 プロジェクト構造
+
+```
+nomine/
+├── src/
+│   ├── lambda.ts              # Lambda エントリーポイント
+│   ├── db-postgres.ts         # PostgreSQL接続モジュール
+│   ├── s3.ts                  # S3統合モジュール
+│   ├── auth.ts                # 認証ロジック
+│   ├── rbac.ts                # 権限管理
+│   ├── middleware.ts          # Honoミドルウェア
+│   ├── types.ts               # TypeScript型定義
+│   ├── routes/                # APIルート
+│   │   ├── auth.ts            # 認証API
+│   │   ├── admin.ts           # 管理者API
+│   │   ├── stores.ts          # 店舗管理API
+│   │   ├── settings.ts        # 設定API
+│   │   └── public-entry.ts    # 公開エントリーAPI
+│   ├── utils/                 # ユーティリティ
+│   │   ├── validators.ts      # バリデーション
+│   │   ├── business-day.ts    # 営業日ロジック
+│   │   └── score.ts           # AI採点ロジック
+│   └── ui/                    # フロントエンド（HTML生成）
+│       ├── admin/             # 管理画面
+│       ├── consumer/          # 消費者画面
+│       └── shared/            # 共通コンポーネント
+├── public/static/             # 静的ファイル
+│   ├── consumer-entry.js      # 消費者UI JavaScript
+│   ├── admin-login.js         # 管理画面ログイン
+│   └── admin-dashboard.js     # 管理画面ダッシュボード
+├── migrations-postgres/       # PostgreSQLマイグレーション
+│   ├── 0001_create_users.sql
+│   ├── 0002_create_tenants.sql
+│   └── ...
+├── scripts/
+│   └── deploy.sh              # デプロイスクリプト
+├── template.yaml              # AWS SAM テンプレート
+├── package.json
+├── tsconfig.json
+└── README.md
+
+## 🛠 技術スタック（旧版）
+
 ### フロントエンド
 
 - **UI Framework**: TailwindCSS + Vanilla JavaScript
