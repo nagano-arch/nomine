@@ -35,7 +35,7 @@ Resources:
     Properties:
       FunctionName: !Sub 'nomine-api-${Stage}'
       CodeUri: ./dist
-      Handler: lambda.handler
+      Handler: _worker.handler
       Environment:
         Variables:
           STAGE: !Ref Stage
