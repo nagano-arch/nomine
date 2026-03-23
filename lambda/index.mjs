@@ -166,7 +166,14 @@ async function handleAuth(path, method, body) {
       }
 
       const user = result.rows[0];
+      
+      // デバッグログ
+      console.log('User found:', { id: user.id, email: user.email, role: user.role });
+      console.log('Password hash preview:', user.password_hash.substring(0, 20) + '...');
+      console.log('Input password:', password);
+      
       const isValid = await bcrypt.compare(password, user.password_hash);
+      console.log('Password valid:', isValid);
 
       if (!isValid) {
         return response(401, { error: 'Invalid credentials' });
